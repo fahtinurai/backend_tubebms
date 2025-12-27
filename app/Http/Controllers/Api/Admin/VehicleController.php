@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Vehicle;          
 use Illuminate\Http\Request;
 
+//Fathian Alfiana Rahman menambahkan VehicleController.php untuk menambahkan data kendaraan
+
 class VehicleController extends Controller
 {
     public function index()
