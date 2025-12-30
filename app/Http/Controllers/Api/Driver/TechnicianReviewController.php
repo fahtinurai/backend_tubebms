@@ -11,6 +11,12 @@ use App\Services\NodeEventPublisher;
 
 class TechnicianReviewController extends Controller
 {
+    /**
+     * GET /api/driver/damage-reports/{damageReport}/review
+     * Return:
+     * - review object (kalau ada)
+     * - null (kalau belum ada)
+     */
     public function show(Request $request, DamageReport $damageReport)
     {
         $driver = $request->user();
@@ -19,15 +25,24 @@ class TechnicianReviewController extends Controller
             return response()->json(['message' => 'Forbidden'], 403);
         }
 
-        // ✅ lebih aman: ambil review berdasarkan damage_report_id + driver_id
-        $review = TechnicianReview::with('technician')
-            ->where('damage_report_id', $damageReport->id)
-            ->where('driver_id', $driver->id)
+        $review = TechnicianReview::query()
+            ->with([
+                // ✅ FIX: users tidak punya kolom 'name'
+                'technician:id,username',
+            ])
+            ->where('damage_report_id', (int) $damageReport->id)
+            ->where('driver_id', (int) $driver->id)
             ->first();
 
+        // kalau belum ada review -> return null (200)
         return response()->json($review);
     }
 
+    /**
+     * POST /api/driver/damage-reports/{damageReport}/review
+     * Body: rating (1..5), review (optional)
+     * Return: { message, data: reviewObject }
+     */
     public function store(Request $request, DamageReport $damageReport, FcmService $fcm)
     {
         $driver = $request->user();
@@ -37,11 +52,11 @@ class TechnicianReviewController extends Controller
         }
 
         $validated = $request->validate([
-            'rating' => 'required|integer|min:1|max:5',
-            'review' => 'nullable|string|max:1000',
+            'rating' => ['required', 'integer', 'min:1', 'max:5'],
+            'review' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        // teknisi penanggung jawab: ambil dari latestTechnicianResponse
+        // ambil teknisi dari latestTechnicianResponse
         $damageReport->load(['latestTechnicianResponse', 'vehicle']);
 
         $latest = $damageReport->latestTechnicianResponse;
@@ -56,58 +71,61 @@ class TechnicianReviewController extends Controller
 
         $review = TechnicianReview::updateOrCreate(
             [
-                'damage_report_id' => $damageReport->id,
-                'driver_id' => $driver->id, // ✅ kunci juga driver
+                'damage_report_id' => (int) $damageReport->id,
+                'driver_id'        => (int) $driver->id,
             ],
             [
-                'technician_id' => $latest->technician_id,
-                'rating' => (int) $validated['rating'],
-                'review' => $validated['review'] ?? null,
-                'reviewed_at' => now(), // ✅ sudah benar
+                'technician_id' => (int) $latest->technician_id,
+                'rating'        => (int) $validated['rating'],
+                'review'        => $validated['review'] ?? null,
+                'reviewed_at'   => now(),
             ]
         );
 
-        $review->load('technician');
+        // ✅ FIX: users tidak punya kolom 'name'
+        $review->load([
+            'technician:id,username',
+        ]);
 
-        // =========================
-        // Optional: notif teknisi
-        // =========================
+        // notif teknisi (optional)
         try {
             if ($review->technician) {
                 $plate = $damageReport->vehicle->plate_number ?? '-';
+                $techLabel = $review->technician->username ?? 'Teknisi';
+
                 $fcm->sendToUser(
                     $review->technician,
                     'Rating Baru',
-                    'Kamu mendapat rating baru untuk perbaikan kendaraan ' . $plate,
+                    $techLabel . ' mendapat rating baru untuk perbaikan kendaraan ' . $plate,
                     [
-                        'type' => 'technician_review',
-                        'role' => 'technician',
+                        'type'      => 'technician_review',
+                        'role'      => 'technician',
                         'report_id' => (string) $damageReport->id,
                         'review_id' => (string) $review->id,
-                        'rating' => (string) $review->rating,
+                        'rating'    => (string) $review->rating,
                     ]
                 );
             }
         } catch (\Throwable $e) {
-            // notif jangan bikin API gagal
+            // jangan bikin API gagal
         }
 
-        // Optional: event untuk admin dashboard
+        // event admin (optional)
         try {
             NodeEventPublisher::publish('technician_review.created', [
-                'review_id' => $review->id,
+                'review_id'        => $review->id,
                 'damage_report_id' => $review->damage_report_id,
-                'technician_id' => $review->technician_id,
-                'driver_id' => $review->driver_id,
-                'rating' => $review->rating,
-                'reviewed_at' => optional($review->reviewed_at)->toISOString(),
-                'created_at' => optional($review->created_at)->toISOString(),
+                'technician_id'    => $review->technician_id,
+                'driver_id'        => $review->driver_id,
+                'rating'           => $review->rating,
+                'reviewed_at'      => optional($review->reviewed_at)->toISOString(),
+                'created_at'       => optional($review->created_at)->toISOString(),
             ], ['admin']);
         } catch (\Throwable $e) {}
 
         return response()->json([
             'message' => 'Review tersimpan',
-            'data' => $review,
+            'data'    => $review,
         ], 201);
     }
 }
