@@ -1,5 +1,5 @@
 <?php
-
+// Nur Ahmadi Aditya Nanda
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;

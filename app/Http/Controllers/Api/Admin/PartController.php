@@ -9,6 +9,7 @@ use App\Services\NodeEventPublisher;
 
 class PartController extends Controller
 {
+  //menampilkan daftar sparepart dengan pencarian
   public function index(Request $request)
   {
     $q = trim((string) $request->query('search', ''));
@@ -24,6 +25,7 @@ class PartController extends Controller
     return response()->json($parts);
   }
 
+  //menyimpan data sparepart baru
   public function store(Request $request)
   {
     $data = $request->validate([
@@ -49,6 +51,7 @@ class PartController extends Controller
     return response()->json($part, 201);
   }
 
+  //meng-update data sparepart
   public function update(Request $request, Part $part)
   {
     $data = $request->validate([
@@ -72,6 +75,7 @@ class PartController extends Controller
     return response()->json($part);
   }
 
+  //menghapus data sparepart
   public function destroy(Part $part)
   {
     $id = $part->id;

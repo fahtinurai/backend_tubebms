@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\Admin\VehicleController;
 use App\Http\Controllers\Api\Admin\VehicleAssignmentController;
 use App\Http\Controllers\Api\Admin\PartController;
 use App\Http\Controllers\Api\Admin\StockMovementController;
+//nawra menambahkan RepairController
 use App\Http\Controllers\Api\Admin\RepairController;
 use App\Http\Controllers\Api\Admin\FinanceTransactionController;
 use App\Http\Controllers\Api\Admin\PartUsageApprovalController;
@@ -117,7 +118,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('part-usages/{partUsage}/approve', [PartUsageApprovalController::class, 'approve']);
         Route::post('part-usages/{partUsage}/reject', [PartUsageApprovalController::class, 'reject']);
 
+
         // repair history
+        // Nawra menambahkan route Repairs
         Route::get('repairs', [RepairController::class, 'index']);
         Route::get('repairs/{repair}', [RepairController::class, 'show']);
         Route::post('repairs', [RepairController::class, 'store']);
