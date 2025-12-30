@@ -42,6 +42,8 @@ use App\Http\Controllers\Api\Technician\DamageReportController as TechnicianDama
 use App\Http\Controllers\Api\Technician\PartUsageController as TechnicianPartUsageController;
 use App\Http\Controllers\Api\Technician\CostEstimateController as TechnicianCostEstimateController;
 use App\Http\Controllers\Api\Technician\ServiceJobController;
+use App\Http\Controllers\Api\Technician\TechnicianReviewController as TechnicianReviewController;
+
 
 /*
 |--------------------------------------------------------------------------
@@ -207,5 +209,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('jobs/{booking}', [ServiceJobController::class, 'show']);
         Route::post('jobs/{booking}/start', [ServiceJobController::class, 'start']);
         Route::post('jobs/{booking}/complete', [ServiceJobController::class, 'complete']);
+
+        // reviews
+        Route::get('reviews', [TechnicianReviewController::class, 'index']);
+        Route::get('reviews/{review}', [TechnicianReviewController::class, 'show']);
     });
 });

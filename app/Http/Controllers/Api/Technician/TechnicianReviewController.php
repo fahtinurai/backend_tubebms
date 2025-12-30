@@ -10,31 +10,52 @@ class TechnicianReviewController extends Controller
 {
     /**
      * GET /api/technician/reviews
-     * - list review milik teknisi login
-     * - plus ringkasan (avg & total)
+     *
+     * Response:
+     * {
+     *   "summary": { "avg_rating": 4.25, "total_reviews": 12 },
+     *   "data": { ... paginator ..., "data": [ ...items... ] }
+     * }
+     *
+     * Compatible with:
+     * - api_service.dart getTechnicianReviews(): expects summary + data(paginator)
+     * - technician_home.dart Reviews tab: show avg & total + list of reviews
+     * - models.dart ApiTechnicianReview: expects rating, review, created_at, driver, technician, damageReport.vehicle.plate_number
      */
     public function index(Request $request)
     {
         $tech = $request->user();
 
-        $q = TechnicianReview::with([
-                'driver:id,name',
+        // pagination size (opsional)
+        $perPage = (int) $request->query('per_page', 20);
+        if ($perPage <= 0) $perPage = 20;
+        if ($perPage > 100) $perPage = 100;
+
+        $q = TechnicianReview::query()
+            ->with([
+                // ✅ FIX: users tidak punya kolom 'name'
+                'driver:id,username',
+                'technician:id,username',
                 'damageReport:id,vehicle_id,driver_id,created_at',
-                'damageReport.vehicle:id,plate_number',
+                'damageReport.vehicle:id,plate_number,brand,model',
             ])
-            ->forTechnician((int) $tech->id)
-            ->latestReviewed(); // ✅ COALESCE(reviewed_at, created_at)
+            ->where('technician_id', (int) $tech->id)
+            // urutkan paling baru (kalau ada reviewed_at pakai itu, else created_at)
+            ->orderByRaw('COALESCE(reviewed_at, created_at) DESC');
 
-        $items = $q->paginate(20);
+        $items = $q->paginate($perPage);
 
-        // ringkasan
-        $avg = TechnicianReview::forTechnician((int) $tech->id)->avg('rating');
-        $count = TechnicianReview::forTechnician((int) $tech->id)->count();
+        // summary
+        $base = TechnicianReview::query()
+            ->where('technician_id', (int) $tech->id);
+
+        $avg = $base->avg('rating');
+        $count = $base->count();
 
         return response()->json([
             'summary' => [
                 'avg_rating' => $avg ? round((float) $avg, 2) : 0,
-                'total_reviews' => $count,
+                'total_reviews' => (int) $count,
             ],
             'data' => $items,
         ]);
@@ -42,19 +63,23 @@ class TechnicianReviewController extends Controller
 
     /**
      * GET /api/technician/reviews/{review}
-     * - detail review (harus milik teknisi ini)
+     * Detail 1 review (harus milik teknisi login)
+     *
+     * Response: review object langsung
      */
     public function show(Request $request, TechnicianReview $review)
     {
         $tech = $request->user();
 
-        if (! $review->ownedByTechnician((int) $tech->id)) {
+        if ((int) $review->technician_id !== (int) $tech->id) {
             return response()->json(['message' => 'Forbidden'], 403);
         }
 
         $review->load([
-            'driver:id,name',
-            'damageReport.vehicle:id,plate_number',
+            // ✅ FIX: users tidak punya kolom 'name'
+            'driver:id,username',
+            'technician:id,username',
+            'damageReport.vehicle:id,plate_number,brand,model',
         ]);
 
         return response()->json($review);
