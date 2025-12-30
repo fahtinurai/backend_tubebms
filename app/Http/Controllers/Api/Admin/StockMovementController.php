@@ -8,6 +8,7 @@ use App\Models\StockMovement;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
+//menampilkan histori pergerakan stok
 class StockMovementController extends Controller
 {
     public function index(Request $request)
