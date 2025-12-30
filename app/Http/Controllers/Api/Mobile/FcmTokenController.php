@@ -1,25 +1,68 @@
 <?php
 
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
+namespace App\Http\Controllers\Api\Mobile;
 
-return new class extends Migration {
-    public function up(): void
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use App\Models\UserFcmToken;
+
+class FcmTokenController extends Controller
+{
+    /**
+     * POST /api/mobile/fcm-token
+     */
+    public function store(Request $request)
     {
-        Schema::create('user_fcm_tokens', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
-            $table->string('token')->unique();
-            $table->string('platform')->nullable();
-            $table->timestamps();
+        $request->validate([
+            'token' => 'required|string',
+            'platform' => 'nullable|string',
+        ]);
 
-            $table->index(['user_id']);
-        });
+        $userId = auth()->id();
+
+        if (!$userId) {
+            return response()->json([
+                'message' => 'Unauthorized'
+            ], 401);
+        }
+
+        // token UNIQUE → pakai token sebagai kunci
+        UserFcmToken::updateOrCreate(
+            ['token' => $request->token],
+            [
+                'user_id' => $userId,
+                'platform' => $request->platform,
+            ]
+        );
+
+        return response()->json([
+            'message' => 'FCM token saved successfully'
+        ], 200);
     }
 
-    public function down(): void
+    /**
+     * POST /api/mobile/fcm-token/delete
+     */
+    public function destroy(Request $request)
     {
-        Schema::dropIfExists('user_fcm_tokens');
+        $request->validate([
+            'token' => 'required|string',
+        ]);
+
+        $userId = auth()->id();
+
+        if (!$userId) {
+            return response()->json([
+                'message' => 'Unauthorized'
+            ], 401);
+        }
+
+        UserFcmToken::where('user_id', $userId)
+            ->where('token', $request->token)
+            ->delete();
+
+        return response()->json([
+            'message' => 'FCM token deleted successfully'
+        ], 200);
     }
-};
+}
