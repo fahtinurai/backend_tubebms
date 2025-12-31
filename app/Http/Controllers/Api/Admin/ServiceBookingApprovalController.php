@@ -7,6 +7,7 @@ use App\Models\ServiceBooking;
 use Illuminate\Http\Request;
 use App\Services\FcmService;
 use App\Services\NodeEventPublisher;
+use App\Services\FirestoreService;
 
 class ServiceBookingApprovalController extends Controller
 {
@@ -30,17 +31,21 @@ class ServiceBookingApprovalController extends Controller
     /**
      * Approve / set jadwal booking
      * - scheduled_at ditentukan admin
-     * - estimated_finish_at opsional (atau wajib kalau kamu mau)
+     * - estimated_finish_at opsional
      */
-    public function approve(Request $request, ServiceBooking $booking, FcmService $fcm)
-    {
+    public function approve(
+        Request $request,
+        ServiceBooking $booking,
+        FcmService $fcm,
+        FirestoreService $fs
+    ) {
         $request->validate([
             'scheduled_at' => 'required|date',
             'estimated_finish_at' => 'nullable|date|after_or_equal:scheduled_at',
             'note_admin' => 'nullable|string',
         ]);
 
-        if (!in_array($booking->status, ['requested','rescheduled'], true)) {
+        if (!in_array($booking->status, ['requested', 'rescheduled'], true)) {
             return response()->json([
                 'message' => 'Booking tidak dalam status yang bisa di-approve.'
             ], 422);
@@ -56,13 +61,29 @@ class ServiceBookingApprovalController extends Controller
         $booking->load(['damageReport.vehicle', 'damageReport.driver']);
 
         // =========================
-        // FCM ke DRIVER (jadwal diset)
+        // Firestore + FCM ke DRIVER
         // =========================
         try {
             $report = $booking->damageReport;
             if ($report && $report->driver) {
                 $plate = $report->vehicle->plate_number ?? '-';
 
+                // 1) simpan ke Firestore (inbox/riwayat)
+                $fs->pushUserNotification((int) $report->driver->id, [
+                    'title' => 'Booking Servis Disetujui',
+                    'body'  => 'Jadwal servis untuk kendaraan ' . $plate . ' sudah ditetapkan.',
+                    'type'  => 'service_booking',
+                    'role'  => 'driver',
+                    'data'  => [
+                        'report_id' => (int) $report->id,
+                        'booking_id' => (int) $booking->id,
+                        'status' => (string) $booking->status,
+                        'scheduled_at' => (string) $booking->scheduled_at,
+                        'estimated_finish_at' => (string) ($booking->estimated_finish_at ?? ''),
+                    ],
+                ]);
+
+                // 2) kirim FCM push (real-time)
                 $fcm->sendToUser(
                     $report->driver,
                     'Booking Servis Disetujui',
@@ -103,15 +124,19 @@ class ServiceBookingApprovalController extends Controller
     /**
      * Reschedule
      */
-    public function reschedule(Request $request, ServiceBooking $booking, FcmService $fcm)
-    {
+    public function reschedule(
+        Request $request,
+        ServiceBooking $booking,
+        FcmService $fcm,
+        FirestoreService $fs
+    ) {
         $request->validate([
             'scheduled_at' => 'required|date',
             'estimated_finish_at' => 'nullable|date|after_or_equal:scheduled_at',
             'note_admin' => 'nullable|string',
         ]);
 
-        if (!in_array($booking->status, ['approved','requested','rescheduled'], true)) {
+        if (!in_array($booking->status, ['approved', 'requested', 'rescheduled'], true)) {
             return response()->json([
                 'message' => 'Booking tidak bisa di-reschedule.'
             ], 422);
@@ -131,6 +156,22 @@ class ServiceBookingApprovalController extends Controller
             if ($report && $report->driver) {
                 $plate = $report->vehicle->plate_number ?? '-';
 
+                // Firestore
+                $fs->pushUserNotification((int) $report->driver->id, [
+                    'title' => 'Jadwal Booking Diubah',
+                    'body'  => 'Jadwal servis kendaraan ' . $plate . ' telah diubah.',
+                    'type'  => 'service_booking',
+                    'role'  => 'driver',
+                    'data'  => [
+                        'report_id' => (int) $report->id,
+                        'booking_id' => (int) $booking->id,
+                        'status' => (string) $booking->status,
+                        'scheduled_at' => (string) $booking->scheduled_at,
+                        'estimated_finish_at' => (string) ($booking->estimated_finish_at ?? ''),
+                    ],
+                ]);
+
+                // FCM
                 $fcm->sendToUser(
                     $report->driver,
                     'Jadwal Booking Diubah',
@@ -152,8 +193,12 @@ class ServiceBookingApprovalController extends Controller
         ]);
     }
 
-    public function cancel(Request $request, ServiceBooking $booking, FcmService $fcm)
-    {
+    public function cancel(
+        Request $request,
+        ServiceBooking $booking,
+        FcmService $fcm,
+        FirestoreService $fs
+    ) {
         $request->validate([
             'note_admin' => 'nullable|string',
         ]);
@@ -170,6 +215,20 @@ class ServiceBookingApprovalController extends Controller
             if ($report && $report->driver) {
                 $plate = $report->vehicle->plate_number ?? '-';
 
+                // Firestore
+                $fs->pushUserNotification((int) $report->driver->id, [
+                    'title' => 'Booking Dibatalkan',
+                    'body'  => 'Booking servis kendaraan ' . $plate . ' dibatalkan admin.',
+                    'type'  => 'service_booking',
+                    'role'  => 'driver',
+                    'data'  => [
+                        'report_id' => (int) $report->id,
+                        'booking_id' => (int) $booking->id,
+                        'status' => (string) $booking->status,
+                    ],
+                ]);
+
+                // FCM
                 $fcm->sendToUser(
                     $report->driver,
                     'Booking Dibatalkan',
