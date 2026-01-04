@@ -74,6 +74,12 @@ class ServiceJobController extends Controller
         $booking->update($payload);
         $booking->refresh()->load(['damageReport.vehicle', 'damageReport.driver']);
 
+        // ISO datetime untuk sinkronisasi frontend (Node/event)
+        $startedIso = $this->hasColumn($booking, 'started_at')
+            ? optional($booking->started_at)->toISOString()
+            : null;
+        $updatedIso = optional($booking->updated_at)->toISOString();
+
         // ✅ NOTIF DRIVER: servis dimulai
         try {
             $report = $booking->damageReport;
@@ -91,19 +97,21 @@ class ServiceJobController extends Controller
                         'report_id' => (string) ($report->id ?? $booking->damage_report_id),
                         'booking_id' => (string) $booking->id,
                         'status' => (string) $booking->status,
+                        // opsional: kalau UI driver butuh timestamp start
+                        'started_at' => (string) ($startedIso ?? ''),
                     ]
                 );
             }
         } catch (\Throwable $e) {}
 
-        // Optional: node event ke admin/teknisi UI realtime
+        // Optional: node event ke admin/teknisi UI realtime (ISO)
         try {
             NodeEventPublisher::publish('service_job.started', [
-                'booking_id' => $booking->id,
-                'damage_report_id' => $booking->damage_report_id,
-                'status' => $booking->status,
-                'started_at' => $booking->started_at ?? null,
-                'updated_at' => $booking->updated_at,
+                'booking_id' => (int) $booking->id,
+                'damage_report_id' => (int) $booking->damage_report_id,
+                'status' => (string) $booking->status,
+                'started_at' => $startedIso,
+                'updated_at' => $updatedIso,
             ], ['admin', 'technician']);
         } catch (\Throwable $e) {}
 
@@ -136,6 +144,12 @@ class ServiceJobController extends Controller
         $booking->update($payload);
         $booking->refresh()->load(['damageReport.vehicle', 'damageReport.driver']);
 
+        // ISO datetime untuk sinkronisasi frontend (Node/event)
+        $completedIso = $this->hasColumn($booking, 'completed_at')
+            ? optional($booking->completed_at)->toISOString()
+            : null;
+        $updatedIso = optional($booking->updated_at)->toISOString();
+
         // ✅ SINKRON REPORT: supaya driver yang liat status report juga ikut "selesai"
         try {
             $report = $booking->damageReport;
@@ -162,6 +176,8 @@ class ServiceJobController extends Controller
                         'report_id' => (string) ($report->id ?? $booking->damage_report_id),
                         'booking_id' => (string) $booking->id,
                         'status' => (string) $booking->status,
+                        // opsional: kalau UI driver butuh timestamp selesai
+                        'completed_at' => (string) ($completedIso ?? ''),
                     ]
                 );
             }
@@ -169,11 +185,11 @@ class ServiceJobController extends Controller
 
         try {
             NodeEventPublisher::publish('service_job.completed', [
-                'booking_id' => $booking->id,
-                'damage_report_id' => $booking->damage_report_id,
-                'status' => $booking->status,
-                'completed_at' => $booking->completed_at ?? null,
-                'updated_at' => $booking->updated_at,
+                'booking_id' => (int) $booking->id,
+                'damage_report_id' => (int) $booking->damage_report_id,
+                'status' => (string) $booking->status,
+                'completed_at' => $completedIso,
+                'updated_at' => $updatedIso,
             ], ['admin', 'technician']);
         } catch (\Throwable $e) {}
 

@@ -60,13 +60,19 @@ class ServiceBookingApprovalController extends Controller
 
         $booking->load(['damageReport.vehicle', 'damageReport.driver']);
 
+        // ISO (biar sinkron di mobile/web)
+        $scheduledIso = optional($booking->scheduled_at)->toISOString();
+        $finishIso    = optional($booking->estimated_finish_at)->toISOString();
+        $preferredIso = optional($booking->preferred_at)->toISOString(); // opsional
+        $updatedIso   = optional($booking->updated_at)->toISOString();
+
         // =========================
         // Firestore + FCM ke DRIVER
         // =========================
         try {
             $report = $booking->damageReport;
             if ($report && $report->driver) {
-                $plate = $report->vehicle->plate_number ?? '-';
+                $plate = $report?->vehicle?->plate_number ?? '-';
 
                 // 1) simpan ke Firestore (inbox/riwayat)
                 $fs->pushUserNotification((int) $report->driver->id, [
@@ -78,8 +84,9 @@ class ServiceBookingApprovalController extends Controller
                         'report_id' => (int) $report->id,
                         'booking_id' => (int) $booking->id,
                         'status' => (string) $booking->status,
-                        'scheduled_at' => (string) $booking->scheduled_at,
-                        'estimated_finish_at' => (string) ($booking->estimated_finish_at ?? ''),
+                        'preferred_at' => (string) ($preferredIso ?? ''), // opsional
+                        'scheduled_at' => (string) ($scheduledIso ?? ''),
+                        'estimated_finish_at' => (string) ($finishIso ?? ''),
                     ],
                 ]);
 
@@ -94,6 +101,9 @@ class ServiceBookingApprovalController extends Controller
                         'report_id' => (string) $report->id,
                         'booking_id' => (string) $booking->id,
                         'status' => (string) $booking->status,
+                        // opsional: bisa dipakai UI buat highlight preferensi/jadwal
+                        'preferred_at' => (string) ($preferredIso ?? ''),
+                        'scheduled_at' => (string) ($scheduledIso ?? ''),
                     ]
                 );
             }
@@ -106,12 +116,13 @@ class ServiceBookingApprovalController extends Controller
         // =========================
         try {
             NodeEventPublisher::publish('service_booking.approved', [
-                'booking_id' => $booking->id,
-                'damage_report_id' => $booking->damage_report_id,
-                'status' => $booking->status,
-                'scheduled_at' => $booking->scheduled_at,
-                'estimated_finish_at' => $booking->estimated_finish_at,
-                'updated_at' => $booking->updated_at,
+                'booking_id' => (int) $booking->id,
+                'damage_report_id' => (int) $booking->damage_report_id,
+                'status' => (string) $booking->status,
+                'preferred_at' => $preferredIso, // opsional
+                'scheduled_at' => $scheduledIso,
+                'estimated_finish_at' => $finishIso,
+                'updated_at' => $updatedIso,
             ], ['admin']);
         } catch (\Throwable $e) {}
 
@@ -151,10 +162,16 @@ class ServiceBookingApprovalController extends Controller
 
         $booking->load(['damageReport.vehicle', 'damageReport.driver']);
 
+        // ISO
+        $scheduledIso = optional($booking->scheduled_at)->toISOString();
+        $finishIso    = optional($booking->estimated_finish_at)->toISOString();
+        $preferredIso = optional($booking->preferred_at)->toISOString(); // opsional
+        $updatedIso   = optional($booking->updated_at)->toISOString();
+
         try {
             $report = $booking->damageReport;
             if ($report && $report->driver) {
-                $plate = $report->vehicle->plate_number ?? '-';
+                $plate = $report?->vehicle?->plate_number ?? '-';
 
                 // Firestore
                 $fs->pushUserNotification((int) $report->driver->id, [
@@ -166,8 +183,9 @@ class ServiceBookingApprovalController extends Controller
                         'report_id' => (int) $report->id,
                         'booking_id' => (int) $booking->id,
                         'status' => (string) $booking->status,
-                        'scheduled_at' => (string) $booking->scheduled_at,
-                        'estimated_finish_at' => (string) ($booking->estimated_finish_at ?? ''),
+                        'preferred_at' => (string) ($preferredIso ?? ''), // opsional
+                        'scheduled_at' => (string) ($scheduledIso ?? ''),
+                        'estimated_finish_at' => (string) ($finishIso ?? ''),
                     ],
                 ]);
 
@@ -182,9 +200,24 @@ class ServiceBookingApprovalController extends Controller
                         'report_id' => (string) $report->id,
                         'booking_id' => (string) $booking->id,
                         'status' => (string) $booking->status,
+                        'preferred_at' => (string) ($preferredIso ?? ''),
+                        'scheduled_at' => (string) ($scheduledIso ?? ''),
                     ]
                 );
             }
+        } catch (\Throwable $e) {}
+
+        // Node event (opsional tapi konsisten ISO)
+        try {
+            NodeEventPublisher::publish('service_booking.rescheduled', [
+                'booking_id' => (int) $booking->id,
+                'damage_report_id' => (int) $booking->damage_report_id,
+                'status' => (string) $booking->status,
+                'preferred_at' => $preferredIso, // opsional
+                'scheduled_at' => $scheduledIso,
+                'estimated_finish_at' => $finishIso,
+                'updated_at' => $updatedIso,
+            ], ['admin']);
         } catch (\Throwable $e) {}
 
         return response()->json([
@@ -210,10 +243,14 @@ class ServiceBookingApprovalController extends Controller
 
         $booking->load(['damageReport.vehicle', 'damageReport.driver']);
 
+        // ISO
+        $preferredIso = optional($booking->preferred_at)->toISOString(); // opsional
+        $updatedIso   = optional($booking->updated_at)->toISOString();
+
         try {
             $report = $booking->damageReport;
             if ($report && $report->driver) {
-                $plate = $report->vehicle->plate_number ?? '-';
+                $plate = $report?->vehicle?->plate_number ?? '-';
 
                 // Firestore
                 $fs->pushUserNotification((int) $report->driver->id, [
@@ -225,6 +262,7 @@ class ServiceBookingApprovalController extends Controller
                         'report_id' => (int) $report->id,
                         'booking_id' => (int) $booking->id,
                         'status' => (string) $booking->status,
+                        'preferred_at' => (string) ($preferredIso ?? ''), // opsional
                     ],
                 ]);
 
@@ -239,9 +277,21 @@ class ServiceBookingApprovalController extends Controller
                         'report_id' => (string) $report->id,
                         'booking_id' => (string) $booking->id,
                         'status' => (string) $booking->status,
+                        'preferred_at' => (string) ($preferredIso ?? ''),
                     ]
                 );
             }
+        } catch (\Throwable $e) {}
+
+        // Node event (opsional)
+        try {
+            NodeEventPublisher::publish('service_booking.canceled', [
+                'booking_id' => (int) $booking->id,
+                'damage_report_id' => (int) $booking->damage_report_id,
+                'status' => (string) $booking->status,
+                'preferred_at' => $preferredIso, // opsional
+                'updated_at' => $updatedIso,
+            ], ['admin']);
         } catch (\Throwable $e) {}
 
         return response()->json([

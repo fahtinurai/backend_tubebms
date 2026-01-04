@@ -36,25 +36,43 @@ class ServiceBookingController extends Controller
             return response()->json(['message' => 'Laporan sudah selesai.'], 422);
         }
 
-        // 1 report = 1 booking
-        $booking = ServiceBooking::updateOrCreate(
-            ['damage_report_id' => $damageReport->id],
-            [
-                'driver_id'    => $driver->id,
-                'vehicle_id'   => $damageReport->vehicle_id, 
-                'requested_at' => now(),
-                'status'       => 'requested',
-                'note_driver'  => $request->note_driver
-                    ?? ($request->preferred_at ? ('Preferensi jadwal: ' . $request->preferred_at) : null),
-            ]
-        );
+        // ambil booking existing (kalau ada)
+        $existing = ServiceBooking::where('damage_report_id', $damageReport->id)->first();
 
+        // kalau sudah dijadwalkan admin, jangan reset jadi requested lagi
+        if ($existing && in_array($existing->status, ['approved', 'rescheduled'], true)) {
+            return response()->json([
+                'message' => 'Booking sudah dijadwalkan admin, tidak bisa mengajukan ulang. Silakan hubungi admin jika perlu ubah jadwal.'
+            ], 422);
+        }
+
+        // buat baru atau pakai existing yang belum dijadwalkan
+        $booking = $existing ?: new ServiceBooking();
+        if (!$booking->exists) {
+            $booking->damage_report_id = $damageReport->id;
+            $booking->requested_at = now();
+            $booking->status = 'requested';
+        }
+
+        $booking->driver_id = $driver->id;
+        $booking->vehicle_id = $damageReport->vehicle_id;
+
+        // simpan preferensi driver sebagai DATETIME beneran (sinkron)
+        $booking->preferred_at = $request->preferred_at;
+
+        // note_driver tetap boleh otomatis
+        $booking->note_driver = $request->note_driver
+            ?? ($request->preferred_at ? ('Preferensi jadwal: ' . $request->preferred_at) : null);
+
+        $booking->save();
 
         $booking->load(['damageReport.vehicle', 'damageReport.driver']);
 
         // Optional: notif ke admin (booking request)
         try {
-            $plate = $damageReport->vehicle->plate_number ?? '-';
+            $damageReport->loadMissing('vehicle');
+            $plate = $damageReport?->vehicle?->plate_number ?? '-';
+
             $fcm->sendToRole(
                 'admin',
                 'Booking Servis Baru',
@@ -65,6 +83,8 @@ class ServiceBookingController extends Controller
                     'report_id' => (string) $damageReport->id,
                     'booking_id' => (string) $booking->id,
                     'status' => (string) $booking->status,
+                    // opsional (biar admin UI bisa tampilkan cepat)
+                    'preferred_at' => (string) (optional($booking->preferred_at)->toISOString() ?? ''),
                 ]
             );
         } catch (\Throwable $e) {}
@@ -72,11 +92,13 @@ class ServiceBookingController extends Controller
         // node event (opsional)
         try {
             NodeEventPublisher::publish('service_booking.requested', [
-                'booking_id' => $booking->id,
-                'damage_report_id' => $booking->damage_report_id,
-                'status' => $booking->status,
-                'requested_at' => $booking->requested_at,
-                'created_at' => $booking->created_at,
+                'booking_id' => (int) $booking->id,
+                'damage_report_id' => (int) $booking->damage_report_id,
+                'status' => (string) $booking->status,
+                'preferred_at' => optional($booking->preferred_at)->toISOString(),
+                'requested_at' => optional($booking->requested_at)->toISOString(),
+                'created_at' => optional($booking->created_at)->toISOString(),
+                'updated_at' => optional($booking->updated_at)->toISOString(),
             ], ['admin']);
         } catch (\Throwable $e) {}
 
@@ -85,7 +107,6 @@ class ServiceBookingController extends Controller
             'data' => $booking,
         ], 201);
     }
-
 
     public function show(Request $request, DamageReport $damageReport)
     {
@@ -119,7 +140,8 @@ class ServiceBookingController extends Controller
 
         // notif admin (opsional)
         try {
-            $plate = $report->vehicle->plate_number ?? '-';
+            $plate = $report?->vehicle?->plate_number ?? '-';
+
             $fcm->sendToRole(
                 'admin',
                 'Booking Dibatalkan',
@@ -130,6 +152,7 @@ class ServiceBookingController extends Controller
                     'report_id' => (string) $report->id,
                     'booking_id' => (string) $booking->id,
                     'status' => (string) $booking->status,
+                    'preferred_at' => (string) (optional($booking->preferred_at)->toISOString() ?? ''),
                 ]
             );
         } catch (\Throwable $e) {}
