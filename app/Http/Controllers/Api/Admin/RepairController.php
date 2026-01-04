@@ -3,12 +3,9 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\DamageReport;
 use App\Models\FinanceTransaction;
-use App\Models\Part;
 use App\Models\Repair;
 use App\Models\RepairPart;
-use App\Models\StockMovement;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -112,7 +109,17 @@ class RepairController extends Controller
                     'vehicle_plate' => $plate,
                 ]);
 
-                // 2) parts usage + stok OUT + movement
+                /**
+                 * 2) parts usage (HISTORY ONLY)
+                 * - Simpan ke RepairPart untuk riwayat pemakaian
+                 * - TIDAK mengurangi Part.stock
+                 * - TIDAK membuat StockMovement OUT
+                 *
+                 * Agar tidak dobel ketika ada retry / refresh,
+                 * kita bersihkan dulu data parts untuk repair ini.
+                 */
+                RepairPart::where('repair_id', $repair->id)->delete();
+
                 foreach (($data['parts_used'] ?? []) as $p) {
                     $pid = (int) $p['part_id'];
                     $qty = (int) $p['qty'];
@@ -121,24 +128,6 @@ class RepairController extends Controller
                         'repair_id' => $repair->id,
                         'part_id'   => $pid,
                         'qty'       => $qty,
-                    ]);
-
-                    $part = Part::lockForUpdate()->findOrFail($pid);
-
-                    if ((int) $part->stock < $qty) {
-                        throw new \RuntimeException("Stok sparepart {$part->sku} tidak cukup.");
-                    }
-
-                    $part->stock = (int) $part->stock - $qty;
-                    $part->save();
-
-                    StockMovement::create([
-                        'part_id' => $pid,
-                        'type'    => 'OUT',
-                        'qty'     => $qty,
-                        'date'    => now()->toDateString(),
-                        'note'    => 'Dipakai untuk repair #' . $repair->id,
-                        'ref'     => 'repair:' . $repair->id,
                     ]);
                 }
 
@@ -162,8 +151,6 @@ class RepairController extends Controller
                     'status' => 'selesai',
                 ]);
             });
-        } catch (\RuntimeException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
         } catch (\Throwable $e) {
             return response()->json(['message' => $e->getMessage()], 500);
         }
